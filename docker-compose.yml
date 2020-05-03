@@ -1,0 +1,145 @@
+version: "2.1"
+networks:
+  internal_network:
+services:      
+  db:
+    restart: unless-stopped
+    networks:
+      - internal_network
+    build: ./MongoDB/
+    environment:
+      - cacheSizeGB=2
+    volumes:
+      - /Users/me/Documents/docker/db:/data/db
+    expose:
+      - "27017"   
+  es:
+    restart: unless-stopped
+    networks:
+      - internal_network
+    build: ./ElasticSearch/
+    expose:
+      - "9200" 
+    environment:
+      - cluster.name=ambar-es
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+      - max_map_count=262144
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1  
+      nofile:
+        soft: 65536
+        hard: 65536
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - /Users/me/Documents/docker/es:/usr/share/elasticsearch/data
+  rabbit:
+    restart: unless-stopped
+    networks:
+      - internal_network
+    build: ./Rabbit/
+    hostname: rabbit
+    expose:
+      - "15672"
+      - "5672"   
+    volumes:
+      - /Users/me/Documents/docker/rabbit:/var/lib/rabbitmq
+  redis:
+    restart: unless-stopped
+    sysctls:
+      - net.core.somaxconn=1024
+    networks:
+      - internal_network
+    build: ./Redis/
+    expose:
+      - "6379" 
+  serviceapi:
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbit:
+        condition: service_healthy
+      es:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal_network
+    build: ./ServiceApi/
+    expose:
+      - "8081"  
+    environment:            
+      - mongoDbUrl=mongodb://db:27017/ambar_data
+      - elasticSearchUrl=http://es:9200
+      - redisHost=redis
+      - redisPort=6379
+      - rabbitHost=amqp://rabbit
+      - langAnalyzer=ambar_en  
+  webapi:
+    depends_on:
+      serviceapi:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal_network
+    build: ./WebApi/
+    expose:
+      - "8080"
+    ports:
+      - "8080:8080"
+    environment:            
+      - uiLang=en
+      - mongoDbUrl=mongodb://db:27017/ambar_data
+      - elasticSearchUrl=http://es:9200
+      - redisHost=redis
+      - redisPort=6379
+      - serviceApiUrl=http://serviceapi:8081
+      - rabbitHost=amqp://rabbit  
+  frontend:
+    depends_on:
+      webapi:
+        condition: service_healthy
+    build: ./FrontEnd/
+    restart: unless-stopped
+    networks:
+      - internal_network
+    ports:
+      - "82:82"
+    expose:
+      - "82"
+    environment:
+    #replace x with your IP
+      - api=http://x.x.x.x:8080  
+  pipeline0:
+    build: ./Pipeline/
+    depends_on: 
+      serviceapi: 
+        condition: service_healthy                            
+    restart: unless-stopped
+    networks:
+      - internal_network  
+    environment:                
+      - id=0
+      - api_url=http://serviceapi:8081
+      - rabbit_host=amqp://rabbit
+  localcrawler:
+    depends_on: 
+      serviceapi: 
+        condition: service_healthy 
+    build: ./LocalCrawler/
+    restart: unless-stopped
+    networks:
+      - internal_network
+    expose:
+      - "8082"
+    environment:      
+      - name=localcrawler
+    volumes:
+      - /Users/me/Documents/PDF:/usr/data
+
+
+  
+  
